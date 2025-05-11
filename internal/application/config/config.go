@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
 	"github.com/joho/godotenv"
 )
 
 type AppConfig struct {
-	HttpServerAddr string
 	LogLevel       string
 	DebugMode      bool
 }
@@ -21,9 +19,8 @@ func NewAppConfig() (*AppConfig, error) {
 	}
 
 	cfg := AppConfig{}
-	cfg.HttpServerAddr = os.Getenv("HTTP_SERVER_ADDRESS")
 	cfg.LogLevel = os.Getenv("LOG_LEVEL")
-	cfg.DebugMode = os.Getenv("DEBUG") == "true"
+	cfg.DebugMode = os.Getenv("ENABLE_DEBUG") == "true"
 
 	err = validate(&cfg)
 	if err != nil {
@@ -33,21 +30,8 @@ func NewAppConfig() (*AppConfig, error) {
 	return &cfg, nil
 }
 
-func (cfg *AppConfig) IsDebugMode() bool {
-	return cfg.DebugMode
-}
-
-func (cfg *AppConfig) GetLogLevel() string {
-	return cfg.LogLevel
-}
-
 func validate(cfg *AppConfig) error {
 	var errMsg []string
-
-	if cfg.HttpServerAddr == "" {
-		errMsg = append(errMsg, `http server address is empty`)
-	}
-
 	if cfg.LogLevel == "" {
 		errMsg = append(errMsg, `log level is empty`)
 	}

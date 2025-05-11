@@ -27,7 +27,7 @@ func As(err error, target interface{}) bool {
 }
 
 func Errorf(format string, args ...interface{}) error {
-	args := append(args, filePath())
+	args = append(args, filePath())
 	return fmt.Errorf(format+ ` %s`, args...)
 }
 
