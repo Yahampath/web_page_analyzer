@@ -166,6 +166,8 @@ Below dependencies libraries use to develop and build and run this service
 
 ## Deployment
 
+**important**: I have run deployment on a mac therefore if you are going to run this on intel processor you have to change ```GOARCH``` value in Dockerfile to ```arm64``` to  ```amd64``` in line number 13.
+
 ```shell
 # Below command should executed in terminal from repository root folder.
 
