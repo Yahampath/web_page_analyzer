@@ -23,10 +23,10 @@ func RequestIDLoggerMiddleware(logger *log.Logger) func(http.Handler) http.Handl
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// --- CORS handling ---
+	
 			w.Header().Set(`Access-Control-Allow-Origin`, `*`)
 			w.Header().Set(`Access-Control-Allow-Methods`, `POST, GET, OPTIONS`)
-			w.Header().Set(`Access-Control-Allow-Headers`, `Content-Type, X-Request-ID`)
+			w.Header().Set(`Access-Control-Allow-Headers`, `Content-Type, x-request-id`)
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
 				return
