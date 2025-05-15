@@ -168,6 +168,18 @@ Below dependencies libraries use to develop and build and run this service
 
 **important**: I have run deployment on a mac therefore if you are going to run this on intel processor you have to change ```GOARCH``` value in Dockerfile to ```arm64``` to  ```amd64``` in line number 13.
 
+### Deploy using docker compose file
+
+```shell
+# from project root folder
+docker compose up
+
+# to shut down, open another terminal for project root folder
+docker compose down
+```
+
+### Deploy using docker files
+
 ```shell
 # Below command should executed in terminal from repository root folder.
 
@@ -190,7 +202,7 @@ docker container images # If image created, it should be showing in the results 
 docker run  --name web-page-analyzer-web-ui -p 8080:80 --network web-page-analysis-network webpage-analyzer-web-ui:v1.0.0
 ```
 
-Open a browser and go to http://localhost:8080 for FE.
+Open a browser and go to ```http://localhost:80``` for FE.
 
 ## Possible Improvement
 
