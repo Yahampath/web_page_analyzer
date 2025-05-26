@@ -22,9 +22,9 @@ type workItem struct {
 }
 
 type WorkerPool struct {
-	tasksCh     chan workItem  
-	ResultsCh   chan TaskResult 
-	ctx         context.Context 
+	tasksCh     chan workItem
+	ResultsCh   chan TaskResult
+	ctx         context.Context
 	cancelFunc  context.CancelFunc
 	wg          sync.WaitGroup
 	stopOnError bool
@@ -42,24 +42,23 @@ func NewWorkerPool(parentCtx context.Context, numWorkers int, stopOnError bool, 
 		log:         logger,
 	}
 
+	wp.wg.Add(numWorkers)
 	for i := 1; i <= numWorkers; i++ {
 		go wp.worker(i)
 		logger.Infof("Worker %d started", i)
 	}
 
 	go func() {
-		<-wp.ctx.Done() 
+		<-wp.ctx.Done()
 		logger.Infof("Pool cancellation triggered, shutting down task dispatch")
-		
-		close(wp.tasksCh) 
-		
-	
+		close(wp.tasksCh)
+
+		wp.wg.Wait()
 		logger.Infof("All tasks completed, closing results channel")
 		close(wp.ResultsCh)
 	}()
 	return wp
 }
-
 
 func (wp *WorkerPool) Submit(id string, taskFn TaskFunc) error {
 	select {
@@ -67,7 +66,6 @@ func (wp *WorkerPool) Submit(id string, taskFn TaskFunc) error {
 		wp.log.Warnf("Submit rejected for task %s: pool is shutting down", id)
 		return errors.New("worker pool is canceled; cannot accept new tasks")
 	default:
-	
 	}
 
 	select {
@@ -79,43 +77,45 @@ func (wp *WorkerPool) Submit(id string, taskFn TaskFunc) error {
 	}
 }
 
-
 func (wp *WorkerPool) worker(workerID int) {
-	for {
-		select {
-		case <-wp.ctx.Done():
-			wp.log.Infof("Worker %d exiting due to cancellation", workerID)
+	defer wp.wg.Done()
+	select {
+	case <-wp.ctx.Done():
+		wp.log.Infof("Worker %d exiting due to cancellation", workerID)
+		return
+	case task, ok := <-wp.tasksCh:
+		if !ok {
+			wp.log.Infof("Worker %d exiting: task channel closed", workerID)
 			return
-		case task, ok := <-wp.tasksCh:
-			if !ok {
-				wp.log.Infof("Worker %d exiting: task channel closed", workerID)
-				return
-			}
-			wp.wg.Add(1)
-
-			if wp.ctx.Err() != nil {
-				wp.log.Warnf("Task %s is starting after cancellation was signaled", task.id)
-			}
-			wp.log.Infof("Worker %d starting task %s", workerID, task.id)
-
-			result, err := task.fn(wp.ctx)
-
-			if err != nil {
-				wp.log.Errorf("Task %s failed: %v", task.id, err)
-				if wp.stopOnError {
-
-					wp.log.Warnf("StopOnError active - canceling pool due to error in task %s", task.id)
-					wp.cancelFunc() 
-				}
-			} else {
-				wp.log.Infof("Task %s completed successfully", task.id)
-			}
-
-			wp.ResultsCh <- TaskResult{ID: task.id, Result: result, Err: err}
-			wp.log.Infof("Worker %d finished task %s", workerID, task.id)
-
-			wp.wg.Done()
 		}
+
+		wp.log.Infof("Worker %d starting task %s", workerID, task.id)
+
+		var result any
+		var err error
+		if task.fn != nil {
+			result, err = task.fn(wp.ctx)
+		} else {
+			wp.log.Errorf("Task %s failed: nil task function", task.id)
+			err = errors.New("nil task function")
+		}
+
+		if err != nil {
+			wp.log.Errorf("Task %s failed: %v", task.id, err)
+			if wp.stopOnError {
+				wp.log.Warnf("StopOnError active - canceling pool due to error in task %s", task.id)
+				wp.cancelFunc()
+			}
+		} else {
+			wp.log.Infof("Task %s completed successfully", task.id)
+		}
+
+		select {
+		case wp.ResultsCh <- TaskResult{ID: task.id, Result: result, Err: err}:
+		case <-wp.ctx.Done():
+		}
+
+		wp.log.Infof("Worker %d finished task %s", workerID, task.id)
 	}
 }
 

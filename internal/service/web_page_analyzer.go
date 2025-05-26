@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"runtime"
 	"strings"
+	"sync"
 	"web_page_analyzer/internal/domain/adaptors"
 	"web_page_analyzer/internal/domain/models"
 	"web_page_analyzer/internal/pkg/errors"
@@ -24,6 +24,12 @@ type WebPageAnalyzer interface {
 type linkInfo struct {
 	url        string
 	isInternal bool
+}
+
+type webPageInfo struct {
+	responseCode int
+	bodyByte     []byte
+	htmlNode     *html.Node
 }
 
 type Analyzer struct {
@@ -43,39 +49,78 @@ func NewAnalyzer(log *log.Logger, webClient adaptors.WebClient) *Analyzer {
 func (a *Analyzer) Analyze(ctx context.Context, userURL string) (*models.AnalysisResult, error) {
 	a.log.Debug(`analyze web page started...`)
 
-	initialTasks := []struct {
-		id   string
-		task func(ctx context.Context) (any, error)
-	}{
-		{"parseUrl", a.parseUrlTask(userURL)},
-		{"getWebPage", a.getWebPageTask(userURL)},
-	}
-	initialPool := worker_pool.NewWorkerPool(ctx, 2, true, a.log)
-	err := a.RunTasksWithWorkerPool(ctx, initialTasks, initialPool)
-	if err != nil {
-		a.log.WithContext(ctx).WithError(err).Error(`failed during initial analysis tasks`)
-		return a.result, err
-	}
+	pool := worker_pool.NewWorkerPool(ctx, 3, false, a.log)
 
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+	pool.Submit("parseUrl", func(ctx context.Context) (any, error) {
+		defer wg.Done()
+		baseUrl, err := a.parseUrlTask(userURL)(ctx)
+		if err != nil {
+			a.log.WithContext(ctx).WithError(err).Error(`failed to parse url`)
+			return nil, errors.Wrap(err, `failed to parse url`)
+		}
+		a.result.Mux.Lock()
+		defer a.result.Mux.Unlock()
 
-	pool := worker_pool.NewWorkerPool(ctx, runtime.NumCPU(), true, a.log)
-	tasks := []struct {
-		id   string
-		task func(ctx context.Context) (any, error)
-	}{
-		{"getHTMLVersion", a.getHTMLVersionTask()},
-		{"getTitle", a.getTitleTask()},
-		{"countHeadings", a.countHeadingsTask()},
-		{"countLinks", a.countLinksTask()},
-		{"checkLinksAccessibility", a.checkLinksAccessibilityTask(pool)},
-		{"hasLoginForm", a.hasLoginFormTask()},
-	}
-	err = a.RunTasksWithWorkerPool(ctx, tasks, pool)
-	if err != nil {
-		a.log.WithContext(ctx).WithError(err).Error(`failed during analysis tasks`)
-		return a.result, err
-	}
+		a.result.BaseUrl = baseUrl.(*url.URL)
+		return baseUrl.(*url.URL), nil
+	})
 
+	pool.Submit("getWebPage", func(ctx context.Context) (any, error) {
+		defer wg.Done()
+		info, err := a.getWebPageTask(userURL)(ctx)
+		if err != nil {
+			a.log.WithContext(ctx).WithError(err).Error(`failed to get web page`)
+			return nil, errors.Wrap(err, `failed to get web page`)
+		}
+		a.result.Mux.Lock()
+		defer a.result.Mux.Unlock()
+		a.result.HtmlNode = info.(*webPageInfo).htmlNode
+		a.result.BodyByte = info.(*webPageInfo).bodyByte
+		a.result.StatusCode = info.(*webPageInfo).responseCode
+		return info.(*webPageInfo), nil
+	})
+
+	wg.Wait()
+
+	pool.Submit(`getHTMLVersion`, func(ctx context.Context) (any, error) {
+		htmlVersion, err := a.getHTMLVersionTask()(ctx)
+		if err != nil {
+			a.log.WithContext(ctx).WithError(err).Error(`failed to get html version`)
+			return nil, errors.Wrap(err, `failed to get html version`)
+		}
+		a.result.Mux.Lock()
+		defer a.result.Mux.Unlock()
+		a.result.HTMLVersion = htmlVersion.(string)
+		return htmlVersion.(string), nil
+	})
+
+	pool.Submit(`getTitle`, func(ctx context.Context) (any, error) {
+		title, err := a.getTitleTask()(ctx)
+		if err != nil {
+			a.log.WithContext(ctx).WithError(err).Error(`failed to get title`)
+			return nil, errors.Wrap(err, `failed to get title`)
+		}
+		a.result.Mux.Lock()
+		defer a.result.Mux.Unlock()
+		a.result.Title = title.(string)
+		return title.(string), nil
+	})
+
+	pool.Submit(`getHeadings`, func(ctx context.Context) (any, error) {
+		headings, err := a.countHeadingsTask()(ctx)
+		if err != nil {
+			a.log.WithContext(ctx).WithError(err).Error(`failed to get headings`)
+			return nil, errors.Wrap(err, `failed to get headings`)
+		}
+		a.result.Mux.Lock()
+		defer a.result.Mux.Unlock()
+		a.result.Headings = headings.(map[string]int)
+		return headings.(map[string]int), nil
+	})
+
+	pool.Stop()
 	a.log.Debug(`analyze web page ended...`)
 	return a.result, nil
 }
@@ -100,13 +145,21 @@ func (a *Analyzer) RunTasksWithWorkerPool(ctx context.Context, tasks []struct {
 				return res.Err
 			}
 			switch res.ID {
-			case "parseUrl":
-				if parsedUrl, ok := res.Result.(*url.URL); ok {
-					a.result.Mux.Lock()
-					a.result.BaseUrl = parsedUrl
-					a.result.Mux.Unlock()
-				}
-			case "getWebPage":
+			// case "parseUrl":
+			// 	if parsedUrl, ok := res.Result.(*url.URL); ok {
+			// 		a.result.Mux.Lock()
+			// 		a.result.BaseUrl = parsedUrl
+			// 		a.result.Mux.Unlock()
+			// 	}
+			// case "getWebPage":
+			// 	if pageInfo, ok := res.Result.(*webPageInfo); ok {
+			// 		a.result.Mux.Lock()
+			// 		a.result.StatusCode = pageInfo.responseCode
+			// 		a.result.BodyByte = pageInfo.bodyByte
+			// 		a.result.HtmlNode = pageInfo.htmlNode
+			// 		a.result.Mux.Unlock()
+			// 	} else {
+			// 	}
 			case "getHTMLVersion":
 				if htmlVersion, ok := res.Result.(string); ok {
 					a.result.Mux.Lock()
@@ -146,6 +199,7 @@ func (a *Analyzer) RunTasksWithWorkerPool(ctx context.Context, tasks []struct {
 				}
 			}
 		case <-ctx.Done():
+			a.log.WithContext(ctx).Errorf("context done: %v", ctx.Err().Error())
 			return ctx.Err()
 		}
 		if pool.ResultsCh == nil {
@@ -161,6 +215,9 @@ func (a *Analyzer) parseUrlTask(userURL string) func(ctx context.Context) (any, 
 		if err != nil {
 			a.log.WithContext(ctx).WithError(err).Error(`failed to parse url`)
 			return nil, errors.Wrap(err, `failed to parse url`)
+		}
+		if baseURL.Scheme != "http" && baseURL.Scheme != "https" {
+			return nil, errors.New("url is invalid")
 		}
 		return baseURL, nil
 	}
@@ -185,12 +242,13 @@ func (a *Analyzer) getWebPageTask(userURL string) func(ctx context.Context) (any
 			return nil, errors.Wrap(err, `failed to parse html`)
 		}
 
-		a.result.Mux.Lock()
-		a.result.StatusCode = responseCode
-		a.result.BodyByte = bodyByte
-		a.result.HtmlNode = doc
-		a.result.Mux.Unlock()
-		return nil, nil
+		info := webPageInfo{
+			responseCode: responseCode,
+			bodyByte:     bodyByte,
+			htmlNode:     doc,
+		}
+
+		return &info, nil
 	}
 }
 
