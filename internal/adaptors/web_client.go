@@ -7,8 +7,9 @@ import (
 	"time"
 	"web_page_analyzer/internal/pkg/errors"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"web_page_analyzer/internal/pkg/metrics"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -19,12 +20,12 @@ type WebClient struct {
 
 func NewWebClient(timeout time.Duration, log *log.Logger) *WebClient {
 	rTripper := promhttp.InstrumentRoundTripperDuration(
-		 metrics.HTTPClientRequestDuration,
-		 promhttp.InstrumentRoundTripperCounter(metrics.HTTPClientRequestsTotal, http.DefaultTransport))
+		metrics.HTTPClientRequestDuration,
+		promhttp.InstrumentRoundTripperCounter(metrics.HTTPClientRequestsTotal, http.DefaultTransport))
 
 	return &WebClient{
 		client: &http.Client{
-			Timeout: timeout,
+			Timeout:   timeout,
 			Transport: rTripper,
 		},
 		log: log,
