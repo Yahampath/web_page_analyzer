@@ -1,6 +1,15 @@
 package models
 
-type AnalysisResult struct{
+import (
+	"net/url"
+
+	"golang.org/x/net/html"
+)
+
+type AnalysisResult struct {
+	BaseUrl           *url.URL
+	HtmlNode          *html.Node
+	BodyByte          []byte
 	HTMLVersion       string
 	Title             string
 	Headings          map[string]int

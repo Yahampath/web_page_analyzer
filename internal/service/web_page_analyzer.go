@@ -8,13 +8,15 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 	"web_page_analyzer/internal/domain/adaptors"
 	"web_page_analyzer/internal/domain/models"
 	"web_page_analyzer/internal/pkg/errors"
 
+	"golang.org/x/sync/errgroup"
+
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/html"
-	"golang.org/x/sync/errgroup"
 )
 
 type WebPageAnalyzer interface {
@@ -24,6 +26,12 @@ type WebPageAnalyzer interface {
 type linkInfo struct {
 	url        string
 	isInternal bool
+}
+
+type webPageInfo struct {
+	responseCode int
+	bodyByte     []byte
+	htmlNode     *html.Node
 }
 
 type Analyzer struct {
@@ -38,131 +46,159 @@ func NewAnalyzer(log *log.Logger, webClient adaptors.WebClient) *Analyzer {
 	}
 }
 
-func (a *Analyzer) Analyze(ctx context.Context, userURL string) (models.AnalysisResult, error) {
+func (a *Analyzer) Analyze(ctx context.Context, userURL string) (*models.AnalysisResult, error) {
 	a.log.Debug(`analyze web page started...`)
-	result := models.AnalysisResult{}
 
-	// Create error group with context
+	result := &models.AnalysisResult{}
 	g, ctx := errgroup.WithContext(ctx)
 
-	baseURLChan := make(chan *url.URL, 1)
-	bodyChan := make(chan []byte, 1)
-	docChan := make(chan *html.Node, 1)
+	var (
+		parsedURL *url.URL
+		pageInfo  webPageInfo
+	)
 
 	g.Go(func() error {
-		baseURL, err := url.Parse(userURL)
+		funcStartTime := time.Now()
+		defer func() {
+			a.log.Debugf("parseUrl took %v", time.Since(funcStartTime))
+		}()
+		u, err := parseUrl(ctx, userURL)
 		if err != nil {
-			a.log.WithError(err).Error(`failed to parse url`)
-			return errors.Wrap(err, `failed to parse url`)
+			a.log.WithContext(ctx).WithError(err).Error(`failed to parse url`)
+			return err
 		}
-		baseURLChan <- baseURL
+		parsedURL = u
 		return nil
 	})
 
 	g.Go(func() error {
-		bodyByte, respCode, err := a.getWebPage(ctx, userURL)
+		funcStartTime := time.Now()
+		defer func() {
+			a.log.Debugf("getWebPage took %v", time.Since(funcStartTime))
+		}()
+		pi, err := getWebPage(ctx, userURL, a.webClient)
 		if err != nil {
-			result.StatusCode = respCode
-			a.log.WithError(err).Error(`failed to get web page`)
-			return errors.Wrap(err, `failed to get web page`)
+			a.log.WithContext(ctx).WithError(err).Error(`failed to get web page`)
+			return err
 		}
-		bodyChan <- bodyByte
-
-		doc, err := html.Parse(bytes.NewReader(bodyByte))
-		if err != nil {
-			a.log.WithError(err).Error(`failed to parse html`)
-			return errors.Wrap(err, `failed to parse html`)
-		}
-		docChan <- doc
+		pageInfo = pi
 		return nil
 	})
 
-	// Wait for both parallel operations
 	if err := g.Wait(); err != nil {
-		return result, err
+		return result, errors.Wrap(err, "failed to prepare web page or URL")
 	}
 
-	// Get results from channels
-	baseURL := <-baseURLChan
-	bodyByte := <-bodyChan
-	doc := <-docChan
+	result.BaseUrl = parsedURL
+	result.StatusCode = pageInfo.responseCode
+	result.BodyByte = pageInfo.bodyByte
+	result.HtmlNode = pageInfo.htmlNode
 
-	// HTML Version
-	HTMLVersion, err := a.getHTMLVersion(ctx, bodyByte)
-	if err != nil {
-		a.log.WithError(err).Error(`failed to get html version`)
-		return result, errors.Wrap(err, `failed to get html version`)
+	analyzeGroup, ctx := errgroup.WithContext(ctx)
+
+	analyzeGroup.Go(func() error {
+		funcStartTime := time.Now()
+		defer func() {
+			a.log.Debugf("checkLinksAccessibility took %v", time.Since(funcStartTime))
+		}()
+		links := collectLinks(ctx, result.HtmlNode, result.BaseUrl)
+		inaccessibleLinks := checkLinksAccessibility(ctx, links)
+		result.InaccessibleLinks = inaccessibleLinks
+		return nil
+	})
+
+	analyzeGroup.Go(func() error {
+		funcStartTime := time.Now()
+		defer func() {
+			a.log.Debugf("countLinks took %v", time.Since(funcStartTime))
+		}()
+		internal, external := countLinks(ctx, result.HtmlNode, result.BaseUrl)
+		result.InternalLinks = internal
+		result.ExternalLinks = external
+		return nil
+	})
+
+	analyzeGroup.Go(func() error {
+		funcStartTime := time.Now()
+		defer func() {
+			a.log.Debugf("countHeadings took %v", time.Since(funcStartTime))
+		}()
+		result.Headings = countHeadings(ctx, result.HtmlNode)
+		return nil
+	})
+
+	analyzeGroup.Go(func() error {
+		funcStartTime := time.Now()
+		defer func() {
+			a.log.Debugf("getTitle took %v", time.Since(funcStartTime))
+		}()
+		result.Title = getTitle(ctx, result.HtmlNode)
+		return nil
+	})
+
+	analyzeGroup.Go(func() error {
+		funcStartTime := time.Now()
+		defer func() {
+			a.log.Debugf("getHTMLVersion took %v", time.Since(funcStartTime))
+		}()
+		result.HTMLVersion = getHTMLVersion(ctx, result.BodyByte)
+		return nil
+	})
+
+	analyzeGroup.Go(func() error {
+		funcStartTime := time.Now()
+		defer func() {
+			a.log.Debugf("checkLoginForm took %v", time.Since(funcStartTime))
+		}()
+		result.HasLoginForm = hasLoginForm(ctx, result.HtmlNode)
+		return nil
+	})
+
+	if err := analyzeGroup.Wait(); err != nil {
+		return result, errors.Wrap(err, "failed to analyze web page")
 	}
-
-	// Title
-	title, err := a.getTitle(ctx, doc)
-	if err != nil {
-		a.log.WithError(err).Error(`failed to get title`)
-		return result, errors.Wrap(err, `failed to get title`)
-	}
-
-	// Headings
-	headings, err := a.countHeadings(ctx, doc)
-	if err != nil {
-		a.log.WithError(err).Error(`failed to count headings`)
-		return result, errors.Wrap(err, `failed to count headings`)
-	}
-
-	// Links
-	internalLinks, externalLinks, err := a.countLinks(ctx, doc, baseURL)
-	if err != nil {
-		a.log.WithError(err).Error(`failed to count links`)
-		return result, errors.Wrap(err, `failed to count links`)
-	}
-
-	// Inaccessible links
-	links, err := a.collectLinks(ctx, doc, baseURL)
-	if err != nil {
-		a.log.WithError(err).Error(`failed to collect links`)
-		return result, errors.Wrap(err, `failed to collect links`)
-	}
-
-	inaccessible, err := a.checkLinksAccessibility(ctx, links)
-	if err != nil {
-		a.log.WithError(err).Error(`failed to check links accessibility`)
-		return result, errors.Wrap(err, `failed to check links accessibility`)
-	}
-
-	// Login form
-	hasForm, err := a.hasLoginForm(ctx, doc)
-	if err != nil {
-		a.log.WithError(err).Error(`failed to check login form`)
-		return result, errors.Wrap(err, `failed to check login form`)
-	}
-
-	result.HTMLVersion = HTMLVersion
-	result.Title = title
-	result.Headings = headings
-	result.InternalLinks = internalLinks
-	result.ExternalLinks = externalLinks
-	result.InaccessibleLinks = inaccessible
-	result.HasLoginForm = hasForm
 
 	a.log.Debug(`analyze web page ended...`)
 	return result, nil
 }
 
-func (a *Analyzer) getWebPage(ctx context.Context, userURL string) ([]byte, int, error) {
-	bodyByte, responseCode, err := a.webClient.Do(ctx, userURL, http.MethodGet)
+func parseUrl(ctx context.Context, userUrl string) (*url.URL, error) {
+	baseURL, err := url.Parse(userUrl)
 	if err != nil {
-		a.log.WithError(err).Error(`url is invalid`)
-		return nil, 400, err
+		return nil, err
+	}
+
+	if baseURL.Scheme != "http" && baseURL.Scheme != "https" {
+		return nil, errors.New("url is invalid")
+	}
+
+	return baseURL, nil
+}
+
+func getWebPage(ctx context.Context, userURL string, httpClient adaptors.WebClient) (webPageInfo, error) {
+	var info webPageInfo
+	bodyByte, responseCode, err := httpClient.Do(ctx, userURL, http.MethodGet)
+	if err != nil {
+		return info, err
 	}
 
 	if responseCode != http.StatusOK {
-		a.log.Errorf(`url is invalid. status code: %v`, responseCode)
-		return nil, responseCode, errors.New(fmt.Sprintf(`url is invalid states code is %d`, responseCode))
+		return info, errors.New(fmt.Sprintf(`url is invalid states code is %d`, responseCode))
 	}
 
-	return bodyByte, responseCode, nil
+	doc, err := html.Parse(bytes.NewReader(bodyByte))
+	if err != nil {
+		return info, err
+	}
+
+	info.bodyByte = bodyByte
+	info.responseCode = responseCode
+	info.htmlNode = doc
+
+	return info, nil
 }
 
-func (a *Analyzer) getHTMLVersion(_ context.Context, body []byte) (string, error) {
+func getHTMLVersion(ctx context.Context, body []byte) string {
 	tokenizer := html.NewTokenizer(bytes.NewReader(body))
 	var doctype string
 loop:
@@ -180,21 +216,21 @@ loop:
 	doctypeLower := strings.ToLower(doctype)
 	switch {
 	case strings.Contains(doctypeLower, "html 4.01 strict"):
-		return "HTML 4.01 Strict", nil
+		return "HTML 4.01 Strict"
 	case strings.Contains(doctypeLower, "html 4.01 transitional"):
-		return "HTML 4.01 Transitional", nil
+		return "HTML 4.01 Transitional"
 	case strings.Contains(doctypeLower, "xhtml 1.0 strict"):
-		return "XHTML 1.0 Strict", nil
+		return "XHTML 1.0 Strict"
 	case strings.Contains(doctypeLower, "xhtml 1.0 transitional"):
-		return "XHTML 1.0 Transitional", nil
+		return "XHTML 1.0 Transitional"
 	case strings.Contains(doctypeLower, "html 5") || strings.TrimSpace(doctypeLower) == "<!doctype html>":
-		return "HTML5", nil
+		return "HTML5"
 	default:
-		return doctype, nil
+		return doctype
 	}
 }
 
-func (a *Analyzer) getTitle(_ context.Context, n *html.Node) (string, error) {
+func getTitle(ctx context.Context, n *html.Node) string {
 	var title string
 	var traverse func(*html.Node)
 	traverse = func(n *html.Node) {
@@ -207,42 +243,39 @@ func (a *Analyzer) getTitle(_ context.Context, n *html.Node) (string, error) {
 		}
 	}
 	traverse(n)
-	return title, nil
+	return title
 }
 
-func (a *Analyzer) countHeadings(_ context.Context, n *html.Node) (map[string]int, error) {
+func countHeadings(ctx context.Context, n *html.Node) map[string]int {
 	counts := map[string]int{"h1": 0, "h2": 0, "h3": 0, "h4": 0, "h5": 0, "h6": 0}
 	var traverse func(*html.Node)
 	traverse = func(n *html.Node) {
-			if n.Type == html.ElementNode {
-				switch n.Data {
-				case "h1":
-					counts["h1"]++
-				case "h2":
-					counts["h2"]++
-				case "h3":
-					counts["h3"]++
-				case "h4":
-					counts["h4"]++
-				case "h5":
-					counts["h5"]++
-				case "h6":
-					counts["h6"]++
-				}
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "h1":
+				counts["h1"]++
+			case "h2":
+				counts["h2"]++
+			case "h3":
+				counts["h3"]++
+			case "h4":
+				counts["h4"]++
+			case "h5":
+				counts["h5"]++
+			case "h6":
+				counts["h6"]++
 			}
-			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverse(c)
-			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			traverse(c)
+		}
 	}
 	traverse(n)
-	return counts, nil
+	return counts
 }
 
-func (a *Analyzer) countLinks(ctx context.Context, doc *html.Node, baseURL *url.URL) (int, int, error) {
-	links, err := a.collectLinks(ctx, doc, baseURL)
-	if err != nil {
-		return 0, 0, errors.Wrap(err, `failed to collect links`)
-	}
+func countLinks(ctx context.Context, doc *html.Node, baseURL *url.URL) (int, int) {
+	links := collectLinks(ctx, doc, baseURL)
 	internal, external := 0, 0
 	for _, link := range links {
 		if link.isInternal {
@@ -251,27 +284,26 @@ func (a *Analyzer) countLinks(ctx context.Context, doc *html.Node, baseURL *url.
 			external++
 		}
 	}
-	return internal, external, nil
+	return internal, external
 }
 
-func (a *Analyzer) collectLinks(ctx context.Context, doc *html.Node, baseURL *url.URL) ([]linkInfo, error) {
+func collectLinks(ctx context.Context, doc *html.Node, baseURL *url.URL) []linkInfo {
 	var links []linkInfo
 	var traverse func(*html.Node)
 	traverse = func(n *html.Node) {
 		if n.Type == html.ElementNode && n.Data == "a" {
-			href := a.getHref(ctx, n)
+			href := getHref(ctx, n)
 			if href == "" {
 				return
 			}
 			absoluteURL, err := baseURL.Parse(href)
 			if err != nil {
-				a.log.WithError(err).Error(`failed to parse url: `, href)
 				return
 			}
 			if absoluteURL.Scheme != "http" && absoluteURL.Scheme != "https" {
 				return
 			}
-			isInternal := a.getCanonicalHost(ctx, absoluteURL) == a.getCanonicalHost(ctx, baseURL)
+			isInternal := getCanonicalHost(ctx, absoluteURL) == getCanonicalHost(ctx, baseURL)
 			links = append(links, linkInfo{url: absoluteURL.String(), isInternal: isInternal})
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -279,10 +311,10 @@ func (a *Analyzer) collectLinks(ctx context.Context, doc *html.Node, baseURL *ur
 		}
 	}
 	traverse(doc)
-	return links, nil
+	return links
 }
 
-func (a *Analyzer) getHref(_ context.Context, n *html.Node) string {
+func getHref(ctx context.Context, n *html.Node) string {
 	for _, attr := range n.Attr {
 		if attr.Key == "href" {
 			return attr.Val
@@ -291,7 +323,7 @@ func (a *Analyzer) getHref(_ context.Context, n *html.Node) string {
 	return ""
 }
 
-func (a *Analyzer) getCanonicalHost(_ context.Context, u *url.URL) string {
+func getCanonicalHost(ctx context.Context, u *url.URL) string {
 	host := u.Hostname()
 	port := u.Port()
 	if port == "" {
@@ -303,30 +335,32 @@ func (a *Analyzer) getCanonicalHost(_ context.Context, u *url.URL) string {
 	return host + ":" + port
 }
 
-func (a *Analyzer) checkLinksAccessibility(ctx context.Context, links []linkInfo) (int, error) {
+func checkLinksAccessibility(ctx context.Context, links []linkInfo) int {
 	var wg sync.WaitGroup
 	results := make(chan bool, len(links))
-	sem := make(chan struct{}, 10) // Concurrency limiter
+	sem := make(chan struct{}, 20)
+	client := http.Client{Timeout: 1 * time.Second}
+	defer client.CloseIdleConnections()
 
 	for _, link := range links {
 		wg.Add(1)
-		go func(ctx context.Context, url string) {
+		go func(url string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			_, responseCode, err := a.webClient.Do(ctx, url, http.MethodHead)
+			resp, err := client.Head(url)
 			if err != nil {
 				results <- false
 				return
 			}
-
-			if responseCode >= 400 {
+			defer resp.Body.Close()
+			if resp.StatusCode >= 400 {
 				results <- false
 			} else {
 				results <- true
 			}
-		}(ctx, link.url)
+		}(link.url)
 	}
 
 	go func() {
@@ -340,15 +374,15 @@ func (a *Analyzer) checkLinksAccessibility(ctx context.Context, links []linkInfo
 			inaccessible++
 		}
 	}
-	return inaccessible, nil
+	return inaccessible
 }
 
-func (a *Analyzer) hasLoginForm(ctx context.Context, doc *html.Node) (bool, error) {
+func hasLoginForm(ctx context.Context, doc *html.Node) bool {
 	var hasLogin bool
 	var traverse func(*html.Node)
 	traverse = func(n *html.Node) {
 		if n.Type == html.ElementNode && n.Data == "form" {
-			if a.formHasPassword(ctx, n) {
+			if formHasPassword(ctx, n) {
 				hasLogin = true
 				return
 			}
@@ -358,10 +392,10 @@ func (a *Analyzer) hasLoginForm(ctx context.Context, doc *html.Node) (bool, erro
 		}
 	}
 	traverse(doc)
-	return hasLogin, nil
+	return hasLogin
 }
 
-func (a *Analyzer) formHasPassword(_ context.Context, form *html.Node) bool {
+func formHasPassword(ctx context.Context, form *html.Node) bool {
 	var hasPassword bool
 	var traverseForm func(*html.Node)
 	traverseForm = func(n *html.Node) {
