@@ -2,28 +2,33 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
-	"github.com/joho/godotenv"
+	"github.com/spf13/viper"
 )
 
 type AppConfig struct {
-	LogLevel    string
-	DebugMode   bool
-	MetricsHost string
+	LogLevel    string `mapstructure:"APP_LOG_LEVEL"`
+	DebugMode   bool   `mapstructure:"APP_ENABLE_DEBUG"`
+	MetricsHost string `mapstructure:"HTTP_APP_METRICS_HOST"`
 }
 
 func NewAppConfig() (*AppConfig, error) {
-	err := godotenv.Load(`config.env`)
+	viper.SetConfigFile(`config.env`)
+	viper.SetConfigType("env")
+
+	err := viper.ReadInConfig()
 	if err != nil {
 		return nil, err
 	}
 
+	viper.AutomaticEnv()
+
 	cfg := AppConfig{}
-	cfg.LogLevel = os.Getenv("APP_LOG_LEVEL")
-	cfg.DebugMode = os.Getenv("APP_ENABLE_DEBUG") == "true"
-	cfg.MetricsHost = os.Getenv("HTTP_APP_METRICS_HOST")
+	err = viper.Unmarshal(&cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	err = validate(&cfg)
 	if err != nil {
