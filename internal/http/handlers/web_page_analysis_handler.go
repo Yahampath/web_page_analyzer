@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"web_page_analyzer/internal/pkg/contextkeys"
 	"web_page_analyzer/internal/pkg/errors"
 	"web_page_analyzer/internal/service"
 
@@ -61,21 +62,24 @@ func (h *WebPageAnalysisHandler) Handle(w http.ResponseWriter, r *http.Request) 
 	h.log.Debug(`analyze web page handler called`)
 
 	var request WebPageAnalysisRequest
+	reqID, _ := r.Context().Value(contextkeys.CtxKeyRequestID{}).(string)
+
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		h.log.WithError(err).Error(`failed to decode request body`)
-		sendError(w, `failed to decode request body`, err, http.StatusBadRequest)
+		SendErrorResponse(w, http.StatusBadRequest, "invalid request body", "invalid_request", reqID)
 		return
 	}
 
 	if err := request.Validate(); err != nil {
 		h.log.WithError(err).Error(`failed to validate request body`)
-		sendError(w, `failed to validate request body`, err, http.StatusBadRequest)
+		SendErrorResponse(w, http.StatusBadRequest, err.Error(), "validation_failed", reqID)
 		return
 	}
 
 	result, err := h.service.Analyze(r.Context(), request.URL)
 	if err != nil {
-		sendError(w, `failed to analyze web page`, err, result.StatusCode)
+		h.log.WithError(err).Error("failed to analyze web page")
+		SendErrorResponse(w, http.StatusInternalServerError, "failed to analyze web page", "analysis_failed", reqID)
 		return
 	}
 
@@ -91,10 +95,8 @@ func (h *WebPageAnalysisHandler) Handle(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set(`Content-Type`, `application/json`)
 	w.WriteHeader(http.StatusOK)
-	err = json.NewEncoder(w).Encode(response)
-	if err != nil {
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		h.log.WithError(err).Error(`failed to encode response`)
-		sendError(w, `failed to encode response`, err, http.StatusInternalServerError)
-		return
+		// We can't send another error response here because the header has already been written.
 	}
 }
