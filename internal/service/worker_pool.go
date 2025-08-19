@@ -6,12 +6,12 @@ import (
 )
 
 type Job struct {
-	ID      int
+	ID      string
 	Payload interface{}
 }
 
 type Result struct {
-	JobID int
+	JobID string
 	Value interface{}
 	Err   error
 }
