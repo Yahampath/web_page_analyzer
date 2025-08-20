@@ -8,11 +8,11 @@ import (
 	"runtime/debug"
 	"time"
 
+	"web_page_analyzer/internal/pkg/contextkeys"
+
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
-
-type ctxKeyRequestID struct{}
 
 func RequestIDLoggerMiddleware(logger *log.Logger) func(http.Handler) http.Handler {
 	// configure global format once
@@ -38,7 +38,7 @@ func RequestIDLoggerMiddleware(logger *log.Logger) func(http.Handler) http.Handl
 			}
 
 			w.Header().Set(`x-request-id`, reqID)
-			ctx := context.WithValue(r.Context(), ctxKeyRequestID{}, reqID)
+			ctx := context.WithValue(r.Context(), contextkeys.CtxKeyRequestID{}, reqID)
 			srw := &requestIdStatusRecorder{ResponseWriter: w, status: http.StatusOK}
 
 			start := time.Now()

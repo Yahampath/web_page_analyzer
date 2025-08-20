@@ -36,6 +36,11 @@ func main() {
 	// Get context
 	ctx := context.WithoutCancel(context.Background())
 
+	httpCfg, err := http.NewConfig()
+	if err != nil {
+		logInstance.WithError(err).Fatal(`Failed to lod config`)
+		return
+	}
 	// Init HTTP
-	http.Init(ctx, logInstance, cfg)
+	http.Init(ctx, logInstance, cfg, httpCfg)
 }

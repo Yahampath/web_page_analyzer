@@ -10,22 +10,22 @@ import (
 )
 
 type HTTPServer struct{
-	config *HTTPServerConfig
+	config *Config
 	server *http.Server
 	log *logrus.Logger
 }
 
 
-func NewHttpServer(ctx context.Context, config *HTTPServerConfig, router *chi.Mux, log *logrus.Logger) *HTTPServer {
+func NewHttpServer(ctx context.Context, config *Config, router *chi.Mux, log *logrus.Logger) *HTTPServer {
 	return &HTTPServer{
 		config: config,
 		server: &http.Server{
 			Addr:    config.Host,
 			Handler: router,
-			ReadTimeout: config.Timeouts.Read,
-			ReadHeaderTimeout: config.Timeouts.ReadHeader,
-			WriteTimeout: config.Timeouts.Write,
-			IdleTimeout: config.Timeouts.Idle,
+			ReadTimeout: config.ReadTimeout,
+			ReadHeaderTimeout: config.ReadHeaderTimeout,
+			WriteTimeout: config.WriteTimeout,
+			IdleTimeout: config.IdleTimeout,
 		},
 		log: log,	
 	}
@@ -45,7 +45,7 @@ func (s *HTTPServer) Stop() error {
 	}
 	s.log.Info("Shutting down server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.config.Timeouts.ShutdownWait)
+	ctx, cancel := context.WithTimeout(context.Background(), s.config.ShutdownTimeout)
 	defer cancel()
 
 	if err := s.server.Shutdown(ctx); err != nil {

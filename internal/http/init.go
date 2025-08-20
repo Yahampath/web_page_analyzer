@@ -17,14 +17,9 @@ type Router struct {
 	log        *log.Logger
 }
 
-func Init(ctx context.Context, log *log.Logger, appCfg *config.AppConfig) {
+func Init(ctx context.Context, log *log.Logger, appCfg *config.AppConfig, httpCfg *Config) {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-
-	cfg, err := NewHTTPServerConfig()
-	if err != nil {
-		log.Fatalf(`Failed to lod config: %v`, err)
-	}
 
 	chiRouter := chi.NewRouter()
 	router := &Router{
@@ -35,19 +30,19 @@ func Init(ctx context.Context, log *log.Logger, appCfg *config.AppConfig) {
 	initRoutes(ctx, router)
 
 	// Create metrics server
-	MetricsServer := NewMetricsServer(appCfg.MetricsHost, cfg.Timeouts.ShutdownWait, log)
+	MetricsServer := NewMetricsServer(appCfg.MetricsHost, httpCfg.ShutdownTimeout, log)
 	go MetricsServer.Start()
 
 	// Create HTTP server
-	httpServer := NewHttpServer(ctx, cfg, router.httpRouter, log)
+	httpServer := NewHttpServer(ctx, httpCfg, router.httpRouter, log)
 	go httpServer.Start()
 
 	// Create pprof server (uses default http.DefaultServeMux)
-	pprofServer := NewPprofServer(":6060", cfg.Timeouts.ShutdownWait, log)
+	pprofServer := NewPprofServer(":6060", httpCfg.ShutdownTimeout, log)
 	go pprofServer.Start()
 
 	<-sigs
-	err = httpServer.Stop()
+	err := httpServer.Stop()
 	if err != nil {
 		log.Fatal(err)
 	}
