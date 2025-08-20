@@ -12,9 +12,9 @@ import (
 )
 
 type WebPageAnalysisHandler struct {
-	service *service.Analyzer
-	metrics struct{}
-	log     *log.Logger
+	jobService *service.JobService
+	metrics    struct{}
+	log        *log.Logger
 }
 
 type WebPageAnalysisRequest struct {
@@ -22,13 +22,7 @@ type WebPageAnalysisRequest struct {
 }
 
 type WebPageAnalysisResponse struct {
-	HTMLVersion       string         `json:"html_version"`
-	Title             string         `json:"title"`
-	Headings          map[string]int `json:"headings"`
-	InternalLinks     int            `json:"internal_links"`
-	ExternalLinks     int            `json:"external_links"`
-	InaccessibleLinks int            `json:"inaccessible_links"`
-	HasLoginForm      bool           `json:"has_login_form"`
+	JobID string `json:"job_id"`
 }
 
 func (r *WebPageAnalysisRequest) Validate() error {
@@ -49,16 +43,15 @@ func (r *WebPageAnalysisRequest) Validate() error {
 	return nil
 }
 
-func NewWebPageAnalysisHandler(service *service.Analyzer, log *log.Logger) *WebPageAnalysisHandler {
+func NewWebPageAnalysisHandler(jobService *service.JobService, log *log.Logger) *WebPageAnalysisHandler {
 	return &WebPageAnalysisHandler{
-		service: service,
-		metrics: struct{}{},
-		log:     log,
+		jobService: jobService,
+		metrics:    struct{}{},
+		log:        log,
 	}
 }
 
 func (h *WebPageAnalysisHandler) Handle(w http.ResponseWriter, r *http.Request) {
-
 	h.log.Debug(`analyze web page handler called`)
 
 	var request WebPageAnalysisRequest
@@ -76,27 +69,20 @@ func (h *WebPageAnalysisHandler) Handle(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	result, err := h.service.Analyze(r.Context(), request.URL)
+	job, err := h.jobService.CreateJob(r.Context(), request.URL)
 	if err != nil {
-		h.log.WithError(err).Error("failed to analyze web page")
-		SendErrorResponse(w, http.StatusInternalServerError, "failed to analyze web page", "analysis_failed", reqID)
+		h.log.WithError(err).Error("failed to create job")
+		SendErrorResponse(w, http.StatusInternalServerError, "failed to create job", "job_creation_failed", reqID)
 		return
 	}
 
 	response := WebPageAnalysisResponse{
-		HTMLVersion:       result.HTMLVersion,
-		Title:             result.Title,
-		Headings:          result.Headings,
-		InternalLinks:     result.InternalLinks,
-		ExternalLinks:     result.ExternalLinks,
-		InaccessibleLinks: result.InaccessibleLinks,
-		HasLoginForm:      result.HasLoginForm,
+		JobID: job.ID,
 	}
 
 	w.Header().Set(`Content-Type`, `application/json`)
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusAccepted)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		h.log.WithError(err).Error(`failed to encode response`)
-		// We can't send another error response here because the header has already been written.
 	}
 }

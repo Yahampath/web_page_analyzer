@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 	"web_page_analyzer/internal/domain/adaptors"
 	"web_page_analyzer/internal/domain/models"
@@ -55,10 +56,10 @@ func (a *Analyzer) Analyze(ctx context.Context, userURL string) (*models.Analysi
 	prereqPool.Start(ctx)
 
 	go func() {
-		prereqPool.Submit(Job{ID: 1, Payload: func() (interface{}, error) {
+		prereqPool.Submit(Job{ID: "1", Payload: func() (interface{}, error) {
 			return parseUrl(ctx, userURL)
 		}})
-		prereqPool.Submit(Job{ID: 2, Payload: func() (interface{}, error) {
+		prereqPool.Submit(Job{ID: "2", Payload: func() (interface{}, error) {
 			return getWebPage(ctx, userURL, a.webClient)
 		}})
 		prereqPool.Close()
@@ -76,9 +77,9 @@ func (a *Analyzer) Analyze(ctx context.Context, userURL string) (*models.Analysi
 			break
 		}
 		switch res.JobID {
-		case 1:
+		case "1":
 			parsedURL = res.Value.(*url.URL)
-		case 2:
+		case "2":
 			pageInfo = res.Value.(webPageInfo)
 		}
 	}
@@ -117,38 +118,38 @@ func (a *Analyzer) runAnalysisTasks(ctx context.Context, log *log.Entry, doc *mo
 	analysisPool.Start(ctx)
 
 	go func() {
-		analysisPool.Submit(Job{ID: 1, Payload: func() (interface{}, error) {
+		analysisPool.Submit(Job{ID: "1", Payload: func() (interface{}, error) {
 			log.Debug("starting link accessibility check")
 			links := doc.CollectLinks(ctx)
 			inaccessibleLinks := a.linkChecker(ctx, links)
 			log.Debug("finished link accessibility check")
 			return inaccessibleLinks, nil
 		}})
-		analysisPool.Submit(Job{ID: 2, Payload: func() (interface{}, error) {
+		analysisPool.Submit(Job{ID: "2", Payload: func() (interface{}, error) {
 			log.Debug("starting link counting")
 			internal, external := doc.Links(ctx)
 			log.Debug("finished link counting")
 			return map[string]int{"internal": internal, "external": external}, nil
 		}})
-		analysisPool.Submit(Job{ID: 3, Payload: func() (interface{}, error) {
+		analysisPool.Submit(Job{ID: "3", Payload: func() (interface{}, error) {
 			log.Debug("starting heading counting")
 			headings := doc.Headings(ctx)
 			log.Debug("finished heading counting")
 			return headings, nil
 		}})
-		analysisPool.Submit(Job{ID: 4, Payload: func() (interface{}, error) {
+		analysisPool.Submit(Job{ID: "4", Payload: func() (interface{}, error) {
 			log.Debug("starting title extraction")
 			title := doc.Title(ctx)
 			log.Debug("finished title extraction")
 			return title, nil
 		}})
-		analysisPool.Submit(Job{ID: 5, Payload: func() (interface{}, error) {
+		analysisPool.Submit(Job{ID: "5", Payload: func() (interface{}, error) {
 			log.Debug("starting HTML version detection")
 			htmlVersion := doc.HTMLVersion(ctx)
 			log.Debug("finished HTML version detection")
 			return htmlVersion, nil
 		}})
-		analysisPool.Submit(Job{ID: 6, Payload: func() (interface{}, error) {
+		analysisPool.Submit(Job{ID: "6", Payload: func() (interface{}, error) {
 			log.Debug("starting login form check")
 			hasLoginForm := doc.HasLoginForm(ctx)
 			log.Debug("finished login form check")
@@ -163,19 +164,19 @@ func (a *Analyzer) runAnalysisTasks(ctx context.Context, log *log.Entry, doc *mo
 			continue
 		}
 		switch res.JobID {
-		case 1:
+		case "1":
 			result.InaccessibleLinks = res.Value.(int)
-		case 2:
+		case "2":
 			links := res.Value.(map[string]int)
 			result.InternalLinks = links["internal"]
 			result.ExternalLinks = links["external"]
-		case 3:
+		case "3":
 			result.Headings = res.Value.(map[string]int)
-		case 4:
+		case "4":
 			result.Title = res.Value.(string)
-		case 5:
+		case "5":
 			result.HTMLVersion = res.Value.(string)
-		case 6:
+		case "6":
 			result.HasLoginForm = res.Value.(bool)
 		}
 	}
@@ -240,7 +241,7 @@ func checkLinksAccessibility(ctx context.Context, links []map[string]interface{}
 
 	go func() {
 		for i, link := range links {
-			pool.Submit(Job{ID: i, Payload: link})
+			pool.Submit(Job{ID: strconv.Itoa(i), Payload: link})
 		}
 		pool.Close()
 	}()
