@@ -27,8 +27,8 @@ type WorkerPool struct {
 func NewWorkerPool(numWorkers int, doWork func(ctx context.Context, payload interface{}) (interface{}, error)) *WorkerPool {
 	return &WorkerPool{
 		numWorkers: numWorkers,
-		jobs:       make(chan Job),
-		results:    make(chan Result),
+		jobs:       make(chan Job, numWorkers),
+		results:    make(chan Result, numWorkers),
 		doWork:     doWork,
 	}
 }
@@ -54,10 +54,14 @@ func (wp *WorkerPool) worker(ctx context.Context) {
 				return
 			}
 			value, err := wp.doWork(ctx, job.Payload)
-			wp.results <- Result{
+			select {
+			case wp.results <- Result{
 				JobID: job.ID,
 				Value: value,
 				Err:   err,
+			}:
+			case <-ctx.Done():
+				return
 			}
 		case <-ctx.Done():
 			return
