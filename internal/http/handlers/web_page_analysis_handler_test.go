@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 	"web_page_analyzer/internal/domain/models"
-	"web_page_analyzer/internal/http/handlers"
+	"web_page_analyzer/internal/httpx/handlers"
 	"web_page_analyzer/internal/platform/storage"
 	"web_page_analyzer/internal/service"
 

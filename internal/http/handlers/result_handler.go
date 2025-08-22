@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"web_page_analyzer/internal/domain/models"
-	"web_page_analyzer/internal/platform/storage"
+	"web_page_analyzer/internal/domain/storage"
 	"web_page_analyzer/internal/pkg/contextkeys"
 
 	"github.com/go-chi/chi/v5"
@@ -12,11 +12,11 @@ import (
 )
 
 type ResultHandler struct {
-	jobStore *storage.InMemoryJobStore
+	jobStore storage.JobStore
 	log      *log.Logger
 }
 
-func NewResultHandler(jobStore *storage.InMemoryJobStore, log *log.Logger) *ResultHandler {
+func NewResultHandler(jobStore storage.JobStore, log *log.Logger) *ResultHandler {
 	return &ResultHandler{
 		jobStore: jobStore,
 		log:      log,

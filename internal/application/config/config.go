@@ -11,6 +11,7 @@ type AppConfig struct {
 	LogLevel    string `mapstructure:"APP_LOG_LEVEL"`
 	DebugMode   bool   `mapstructure:"APP_ENABLE_DEBUG"`
 	MetricsHost string `mapstructure:"HTTP_APP_METRICS_HOST"`
+	Workers     int    `mapstructure:"APP_WORKERS"`
 }
 
 func NewAppConfig() (*AppConfig, error) {
@@ -46,6 +47,10 @@ func validate(cfg *AppConfig) error {
 
 	if cfg.MetricsHost == "" {
 		errMsg = append(errMsg, `metrics host is empty`)
+	}
+
+	if cfg.Workers == 0 {
+		errMsg = append(errMsg, `workers is empty`)
 	}
 
 	if len(errMsg) != 0 {

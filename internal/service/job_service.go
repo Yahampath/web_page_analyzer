@@ -4,20 +4,20 @@ import (
 	"context"
 	"net/url"
 	"web_page_analyzer/internal/domain/models"
-	"web_page_analyzer/internal/platform/storage"
+	"web_page_analyzer/internal/domain/storage"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
 type JobService struct {
-	analyzer   *Analyzer
-	jobStore   *storage.InMemoryJobStore
+	analyzer   WebPageAnalyzer
+	jobStore   storage.JobStore
 	workerPool *WorkerPool
 	log        *log.Logger
 }
 
-func NewJobService(analyzer *Analyzer, jobStore *storage.InMemoryJobStore, log *log.Logger, numWorkers int) *JobService {
+func NewJobService(analyzer WebPageAnalyzer, jobStore storage.JobStore, log *log.Logger, numWorkers int) *JobService {
 	s := &JobService{
 		analyzer: analyzer,
 		jobStore: jobStore,

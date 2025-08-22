@@ -3,7 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"web_page_analyzer/internal/platform/storage"
+	"web_page_analyzer/internal/domain/storage"
 	"web_page_analyzer/internal/pkg/contextkeys"
 
 	"github.com/go-chi/chi/v5"
@@ -11,7 +11,7 @@ import (
 )
 
 type StatusHandler struct {
-	jobStore *storage.InMemoryJobStore
+	jobStore storage.JobStore
 	log      *log.Logger
 }
 
@@ -19,7 +19,7 @@ type StatusResponse struct {
 	Status string `json:"status"`
 }
 
-func NewStatusHandler(jobStore *storage.InMemoryJobStore, log *log.Logger) *StatusHandler {
+func NewStatusHandler(jobStore storage.JobStore, log *log.Logger) *StatusHandler {
 	return &StatusHandler{
 		jobStore: jobStore,
 		log:      log,
