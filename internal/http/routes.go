@@ -13,7 +13,7 @@ import (
 )
 
 func initRoutes(_ context.Context, r *Router) {
-	jobStore := storage.NewInMemoryJobStore()
+	jobStore := storage.NewInMemoryJobRepository()
 
 	r.httpRouter.Use(middleware.MetricsMiddleware)
 	r.httpRouter.Use(middleware.RequestIDLoggerMiddleware(r.log))
