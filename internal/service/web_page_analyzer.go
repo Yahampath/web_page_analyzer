@@ -49,7 +49,7 @@ func (a *Analyzer) Analyze(ctx context.Context, userURL string) (*models.Analysi
 	log.Info("starting web page analysis")
 
 	// Phase 1: Prerequisites
-	prereqPool := NewWorkerPool(2, func(ctx context.Context, payload interface{}) (interface{}, error) {
+	prereqPool := NewWorkerPool(10, func(ctx context.Context, payload interface{}) (interface{}, error) {
 		task := payload.(func() (interface{}, error))
 		return task()
 	})
@@ -183,7 +183,7 @@ func (a *Analyzer) runAnalysisTasks(ctx context.Context, log *log.Entry, doc *mo
 	return nil
 }
 
-func parseUrl(ctx context.Context, userUrl string) (*url.URL, error) {
+func parseUrl(_ context.Context, userUrl string) (*url.URL, error) {
 	baseURL, err := url.Parse(userUrl)
 	if err != nil {
 		return nil, err

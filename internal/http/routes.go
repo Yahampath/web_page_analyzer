@@ -23,8 +23,8 @@ func initRoutes(_ context.Context, r *Router) {
 
 	// API routes
 	r.httpRouter.Route("/api/v1", func(apiRouter chi.Router) {
-		analyzerService := service.NewAnalyzer(r.log, adaptors.NewWebClient(5*time.Second, r.log))
-		jobService := service.NewJobService(analyzerService, jobStore, r.log, 10) // 10 workers
+		analyzerService := service.NewAnalyzer(r.log, adaptors.NewWebClient(10*time.Second, r.log))
+		jobService := service.NewJobService(analyzerService, jobStore, r.log, 10)
 		apiRouter.Post("/analyze", handlers.NewWebPageAnalysisHandler(jobService, r.log).Handle)
 		apiRouter.Get("/status/{job_id}", handlers.NewStatusHandler(jobStore, r.log).Handle)
 		apiRouter.Get("/result/{job_id}", handlers.NewResultHandler(jobStore, r.log).Handle)

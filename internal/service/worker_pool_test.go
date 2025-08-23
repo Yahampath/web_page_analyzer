@@ -23,11 +23,11 @@ func TestWorkerPool(t *testing.T) {
 		pool.Start(ctx)
 
 		for i := 0; i < numJobs; i++ {
-			pool.Submit(Job{ID: i, Payload: i})
+			pool.Submit(Job{ID: fmt.Sprint(i), Payload: i})
 		}
 		pool.Close()
 
-		results := make(map[int]string)
+		results := make(map[string]string)
 		for result := range pool.Results() {
 			results[result.JobID] = result.Value.(string)
 		}
@@ -38,8 +38,8 @@ func TestWorkerPool(t *testing.T) {
 
 		for i := 0; i < numJobs; i++ {
 			expected := fmt.Sprintf("result for job %d", i)
-			if results[i] != expected {
-				t.Errorf("expected result '%s' for job %d, got '%s'", expected, i, results[i])
+			if results[fmt.Sprint(i)] != expected {
+				t.Errorf("expected result '%s' for job %d, got '%s'", expected, i, results[fmt.Sprint(i)])
 			}
 		}
 	})
@@ -59,8 +59,8 @@ func TestWorkerPool(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		pool.Start(ctx)
 
-		pool.Submit(Job{ID: 1})
-		pool.Submit(Job{ID: 2})
+		pool.Submit(Job{ID: fmt.Sprint(1)})
+		pool.Submit(Job{ID: fmt.Sprint(2)})
 
 		time.Sleep(10 * time.Millisecond) // Give workers time to pick up jobs
 		cancel()
@@ -88,7 +88,7 @@ func TestWorkerPool(t *testing.T) {
 		pool.Start(ctx)
 
 		for i := 0; i < numJobs; i++ {
-			pool.Submit(Job{ID: i, Payload: i})
+			pool.Submit(Job{ID: fmt.Sprint(i), Payload: i})
 		}
 		pool.Close()
 
@@ -153,7 +153,7 @@ func TestWorkerPool(t *testing.T) {
 		defer cancel()
 		pool.Start(ctx)
 
-		pool.Submit(Job{ID: 1})
+		pool.Submit(Job{ID: fmt.Sprint(1)})
 
 		// Wait for the job to start
 		<-jobStarted
