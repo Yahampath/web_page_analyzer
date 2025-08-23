@@ -3,21 +3,21 @@ package service
 import (
 	"context"
 	"net/url"
+	"web_page_analyzer/internal/domain/adaptors"
 	"web_page_analyzer/internal/domain/models"
-	"web_page_analyzer/internal/platform/storage"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
 type JobService struct {
-	analyzer   *Analyzer
-	jobStore   *storage.InMemoryJobStore
+	analyzer   adaptors.AnalyzerService
+	jobStore   adaptors.JobRepository
 	workerPool *WorkerPool
 	log        *log.Logger
 }
 
-func NewJobService(analyzer *Analyzer, jobStore *storage.InMemoryJobStore, log *log.Logger, numWorkers int) *JobService {
+func NewJobService(analyzer adaptors.AnalyzerService, jobStore adaptors.JobRepository, log *log.Logger, numWorkers int) *JobService {
 	s := &JobService{
 		analyzer: analyzer,
 		jobStore: jobStore,

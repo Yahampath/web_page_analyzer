@@ -35,7 +35,7 @@ func TestWebPageAnalysisE2E(t *testing.T) {
 	// Setup
 	logger := log.New()
 	mockWebClient := new(MockWebClient)
-	jobStore := storage.NewInMemoryJobStore()
+	jobStore := storage.NewInMemoryJobRepository()
 
 	htmlContent := `
 		<!DOCTYPE html>

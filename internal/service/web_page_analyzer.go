@@ -31,6 +31,8 @@ type Analyzer struct {
 	linkChecker linkCheckerFunc
 }
 
+var _ adaptors.AnalyzerService = (*Analyzer)(nil)
+
 func NewAnalyzer(log *log.Logger, webClient adaptors.WebClient) *Analyzer {
 	return &Analyzer{
 		log:         log,

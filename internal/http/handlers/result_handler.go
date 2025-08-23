@@ -3,8 +3,8 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"web_page_analyzer/internal/domain/adaptors"
 	"web_page_analyzer/internal/domain/models"
-	"web_page_analyzer/internal/platform/storage"
 	"web_page_analyzer/internal/pkg/contextkeys"
 
 	"github.com/go-chi/chi/v5"
@@ -12,11 +12,11 @@ import (
 )
 
 type ResultHandler struct {
-	jobStore *storage.InMemoryJobStore
+	jobStore adaptors.JobRepository
 	log      *log.Logger
 }
 
-func NewResultHandler(jobStore *storage.InMemoryJobStore, log *log.Logger) *ResultHandler {
+func NewResultHandler(jobStore adaptors.JobRepository, log *log.Logger) *ResultHandler {
 	return &ResultHandler{
 		jobStore: jobStore,
 		log:      log,
